@@ -3,7 +3,7 @@
 {-# SCRIPT_TYPE ACCOUNT #-}
 
 # TODO: Add actual public key
-let fundPublicKey = base58'bah'
+let initialFundPublicKey = base58'bah'
 
 let REGSTATUS = "registered"
 let REQSTATUS = "requested"
@@ -16,6 +16,14 @@ func orgXPubKey(orgId: String) = {
 
 func orgStatusKey(orgId: String) = {
     orgId + "_status"
+}
+
+func getFundPublicKey() = {
+    let maybeCurrentPublicKey = getBinary(this, "fund_public_key")
+    
+    if isDefined(maybeCurrentPublicKey)
+    then extract(maybeCurrentPublicKey)
+    else initialFundPublicKey
 }
 
 func changeStatus(orgName: ByteVector, xpub: ByteVector, signature: ByteVector, newStatus: String) = {
@@ -79,10 +87,20 @@ func requestVerification(orgName: ByteVector, signature: ByteVector) = {
 
 @Callable(i)
 func approve(orgName: ByteVector, signature: ByteVector) = {
-    changeStatus(orgName, fundPublicKey, signature, APRSTATUS)
+    changeStatus(orgName, getFundPublicKey(), signature, APRSTATUS)
 }
 
 @Callable(i)
 func deny(orgName: ByteVector, signature: ByteVector) = {
-    changeStatus(orgName, signature, fundPublicKey, DENSTATUS)
+    changeStatus(orgName, signature, getFundPublicKey(), DENSTATUS)
+}
+
+@Callable(i)
+func changeFundPublicKey(newPublicKey: ByteVector, signature: ByteVector) = {
+    let oldPublicKey = getFundPublicKey()
+    let signatureValid = sigVerify(newPublicKey, signature, oldPublicKey)
+
+    if signatureValid
+    then WriteSet([DataEntry("fund_public_key", newPublicKey)])
+    else throw("Invalid signature")
 }
