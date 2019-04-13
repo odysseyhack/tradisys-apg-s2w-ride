@@ -1,0 +1,88 @@
+{-# STDLIB_VERSION 3 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+# TODO: Add actual public key
+let fundPublicKey = base58'bah'
+
+let REGSTATUS = "registered"
+let REQSTATUS = "requested"
+let APRSTATUS = "approved"
+let DENSTATUS = "denied"
+
+func orgXPubKey(orgId: String) = {
+    orgId + "_public_key"
+}
+
+func orgStatusKey(orgId: String) = {
+    orgId + "_status"
+}
+
+func changeStatus(orgName: ByteVector, xpub: ByteVector, signature: ByteVector, newStatus: String) = {
+    let orgId = toBase64String(orgName)
+    let maybeOldStatus = getString(this, orgStatusKey(orgId))
+
+    if isDefined(maybeOldStatus)
+    then {
+        let signatureValid = sigVerify(orgName, signature, xpub)
+
+        if signatureValid
+        then WriteSet([DataEntry(orgStatusKey(orgId), newStatus)])
+        else throw("Invalid signature")
+    } else throw("Organization doesnot exists")
+}
+
+@Callable(i)
+func register(orgName: ByteVector, orgPublicKey: ByteVector, signature: ByteVector) = {
+    let seqNrKey = "org_seq_nr"
+    let seqNr = extract(getInteger(this, seqNrKey))
+
+    let newSeqNr = seqNr + 1
+
+    let orgId = toBase64String(orgName)
+
+    let orgNotKnownBefore = isDefined(getBoolean(this, orgStatusKey(orgId)))
+    let publicKeyCorrect = sigVerify(orgName, signature, orgPublicKey)
+
+    let canRegister = orgNotKnownBefore && publicKeyCorrect
+
+    let dataToWrite =
+        WriteSet([
+            DataEntry(seqNrKey, newSeqNr),
+            DataEntry("org_id_" + toString(newSeqNr), orgId),
+            DataEntry(orgXPubKey(orgId), orgPublicKey),
+            DataEntry(orgStatusKey(orgId), REGSTATUS)
+        ])
+    if canRegister
+        then dataToWrite
+        else throw("Organization exists")    
+}
+
+@Callable(i)
+func requestVerification(orgName: ByteVector, signature: ByteVector) = {
+    let orgId = toBase64String(orgName)
+
+    let maybeOldStatus = getString(this, orgStatusKey(orgId))
+    let maybeOrgPublicKey = getBinary(this, orgXPubKey(orgId))
+
+    if isDefined(maybeOldStatus)
+    then {
+        let oldStatus = extract(maybeOldStatus)
+        let orgPublicKey = extract(maybeOrgPublicKey)
+
+        let statusCorrect = oldStatus == REGSTATUS || oldStatus == DENSTATUS
+        changeStatus(orgName, orgPublicKey, signature, REQSTATUS)
+    } else {
+        throw("Organization doesnot exists")
+    }
+}
+
+@Callable(i)
+func approve(orgName: ByteVector, signature: ByteVector) = {
+    changeStatus(orgName, fundPublicKey, signature, APRSTATUS)
+}
+
+@Callable(i)
+func deny(orgName: ByteVector, signature: ByteVector) = {
+    changeStatus(orgName, signature, fundPublicKey, DENSTATUS)
+}
